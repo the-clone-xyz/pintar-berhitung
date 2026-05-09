@@ -17,17 +17,82 @@ import {
   X,
   Volume2,
   VolumeX,
-  Target
+  Target,
+  Box,
+  Dice5,
+  Circle as CircleIcon,
+  Pyramid,
+  Cylinder
 } from 'lucide-react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Stage, MeshWobbleMaterial, Float, Text } from '@react-three/drei';
 import confetti from 'canvas-confetti';
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  limit,
+  serverTimestamp 
+} from 'firebase/firestore';
+import { db, auth } from './firebase';
 
 // --- Types ---
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 enum GameState {
   LOBBY = 'lobby',
   PLAYING = 'playing',
   GAME_OVER = 'game_over',
-  WIN = 'win'
+  WIN = 'win',
+  LEARNING_3D = 'learning_3d'
 }
 
 enum Difficulty {
@@ -63,7 +128,7 @@ interface LeaderboardEntry {
 
 const MAX_LIVES = 3;
 const QUESTIONS_PER_LEVEL = 10;
-const LEADERBOARD_KEY = 'pintar_berhitung_scores';
+const LEADERBOARD_COLLECTION = 'leaderboard';
 
 // --- Audio Utility ---
 
@@ -182,6 +247,35 @@ function generateQuestion(difficulty: Difficulty, opType: Operation): Question {
   };
 }
 
+// --- 3D Shape Components ---
+
+function Shape3D({ type }: { type: 'kubus' | 'balok' | 'tabung' | 'bola' | 'kerucut' }) {
+  return (
+    <Float speed={2} rotationIntensity={1} floatIntensity={1}>
+      <mesh castShadow receiveShadow>
+        {type === 'kubus' && <boxGeometry args={[2, 2, 2]} />}
+        {type === 'balok' && <boxGeometry args={[3, 1.5, 1.5]} />}
+        {type === 'tabung' && <cylinderGeometry args={[1, 1, 3, 32]} />}
+        {type === 'bola' && <sphereGeometry args={[1.5, 32, 32]} />}
+        {type === 'kerucut' && <coneGeometry args={[1.5, 3, 32]} />}
+        <MeshWobbleMaterial 
+          color={
+            type === 'kubus' ? '#EF476F' :
+            type === 'balok' ? '#118AB2' :
+            type === 'tabung' ? '#06D6A0' :
+            type === 'bola' ? '#FFD166' : '#073B4C'
+          } 
+          factor={0.1} 
+          speed={1} 
+          roughness={0}
+          emissive="#ffffff"
+          emissiveIntensity={0.1}
+        />
+      </mesh>
+    </Float>
+  );
+}
+
 // --- Components ---
 
 export default function App() {
@@ -196,38 +290,43 @@ export default function App() {
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
   const [userName, setUserName] = useState<string>('');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [showNameInput, setShowNameInput] = useState(false);
+  const [selectedShape, setSelectedShape] = useState<'kubus' | 'balok' | 'tabung' | 'bola' | 'kerucut'>('kubus');
 
-  // Load leaderboard on mount
+  // Load leaderboard real-time
   useEffect(() => {
-    const saved = localStorage.getItem(LEADERBOARD_KEY);
-    if (saved) {
-      try {
-        setLeaderboard(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load leaderboard', e);
-      }
-    }
+    const q = query(
+      collection(db, LEADERBOARD_COLLECTION), 
+      orderBy('score', 'desc'), 
+      limit(10)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const entries: LeaderboardEntry[] = [];
+      snapshot.forEach((doc) => {
+        entries.push(doc.data() as LeaderboardEntry);
+      });
+      setLeaderboard(entries);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, LEADERBOARD_COLLECTION);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const saveScore = useCallback((finalScore: number) => {
+  const saveScore = useCallback(async (finalScore: number) => {
     if (!userName.trim() || finalScore === 0) return;
     
-    const newEntry: LeaderboardEntry = {
-      name: userName,
-      score: finalScore,
-      difficulty,
-      operation,
-      timestamp: Date.now()
-    };
-
-    setLeaderboard(prev => {
-      const updated = [...prev, newEntry]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
-      localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(updated));
-      return updated;
-    });
+    try {
+      await addDoc(collection(db, LEADERBOARD_COLLECTION), {
+        name: userName,
+        score: finalScore,
+        difficulty,
+        operation,
+        timestamp: Date.now() // or serverTimestamp() - but rules expect number and schema says number
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, LEADERBOARD_COLLECTION);
+    }
   }, [userName, difficulty, operation]);
 
   useEffect(() => {
@@ -304,110 +403,229 @@ export default function App() {
         className="text-center px-2"
       >
         <span className="tag-badge mb-4 inline-block">Aplikasi Edukasi</span>
-        <h1 className="text-5xl sm:text-7xl md:text-9xl font-black text-[#073B4C] mb-2 tracking-tighter uppercase italic">HITUNG CEPAT!</h1>
+        <h1 className="text-5xl sm:text-7xl md:text-9xl font-black text-[#073B4C] mb-2 tracking-tighter uppercase italic text-shadow-brutal">HITUNG CEPAT!</h1>
         <p className="text-lg sm:text-2xl text-[#073B4C] font-bold opacity-80 uppercase tracking-tight">Belajar matematika jadi super seru!</p>
       </motion.div>
 
-      {/* Name Input Section */}
-      <div className="w-full max-w-md bg-white border-4 border-black rounded-[30px] p-8 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Nama Pemain</label>
-        <input 
-          type="text" 
-          value={userName}
-          onChange={(e) => setUserName(e.target.value)}
-          placeholder="Masukkan namamu..."
-          className="w-full p-4 text-xl font-bold bg-slate-50 border-4 border-black rounded-2xl outline-none focus:bg-white transition-colors"
-        />
+      {/* Mode Selector */}
+      <div className="flex gap-4 mb-4">
+        <button 
+          onClick={() => {
+            playSound('click', isSoundEnabled);
+            setGameState(GameState.LOBBY);
+          }}
+          className={`px-6 py-3 rounded-2xl font-black uppercase tracking-tighter border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
+            gameState === GameState.LOBBY ? 'bg-[#EF476F] text-white' : 'bg-white text-[#073B4C]'
+          }`}
+        >
+          🎮 Main Game
+        </button>
+        <button 
+          onClick={() => {
+            playSound('click', isSoundEnabled);
+            setGameState(GameState.LEARNING_3D);
+          }}
+          className={`px-6 py-3 rounded-2xl font-black uppercase tracking-tighter border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
+            gameState === GameState.LEARNING_3D ? 'bg-[#118AB2] text-white' : 'bg-white text-[#073B4C]'
+          }`}
+        >
+          🧊 Bangun Ruang
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 w-full max-w-5xl px-4">
-        {[Operation.ADD, Operation.SUBTRACT, Operation.MULTIPLY].map((op) => (
-          <motion.button
-            key={op}
-            whileHover={{ scale: 1.05, rotate: -1 }}
-            whileTap={{ scale: 0.95 }}
-            disabled={!userName.trim()}
-            onClick={() => {
-              playSound('click', isSoundEnabled);
-              startGame(difficulty, op);
-            }}
-            className={`flex flex-row sm:flex-col items-center gap-6 p-6 sm:p-10 bg-white rounded-[30px] sm:rounded-[40px] border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] hover:shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] group hover:bg-[#06D6A0] transition-all ${!userName.trim() ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
-          >
-            <motion.div 
-              animate={{ 
-                scale: [1, 1.1, 1],
-                rotate: [0, 5, -5, 0]
-              }}
-              transition={{ 
-                duration: 4, 
-                repeat: Infinity, 
-                ease: "easeInOut",
-                delay: op === Operation.SUBTRACT ? 1 : op === Operation.MULTIPLY ? 2 : 0
-              }}
-              className={`p-4 sm:p-6 rounded-2xl border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${
-                op === Operation.ADD ? 'bg-[#EF476F] text-white' : 
-                op === Operation.SUBTRACT ? 'bg-[#118AB2] text-white' : 
-                'bg-[#FFD166] text-[#073B4C]'
-              }`}
-            >
-              {op === Operation.ADD && <Plus size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
-              {op === Operation.SUBTRACT && <Minus size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
-              {op === Operation.MULTIPLY && <X size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
-            </motion.div>
-            <span className="text-2xl sm:text-3xl font-black text-[#073B4C] uppercase tracking-tighter">{op}</span>
-          </motion.button>
-        ))}
-      </div>
+      {gameState === GameState.LOBBY ? (
+        <>
+          {/* Name Input Section */}
+          <div className="w-full max-w-md bg-white border-4 border-black rounded-[30px] p-8 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+            <label className="block text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Nama Pemain</label>
+            <input 
+              type="text" 
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              placeholder="Masukkan namamu..."
+              className="w-full p-4 text-xl font-bold bg-slate-50 border-4 border-black rounded-2xl outline-none focus:bg-white transition-colors"
+            />
+          </div>
 
-      <div className="flex flex-wrap justify-center gap-2 sm:gap-4 p-2 sm:p-3 bg-white border-4 border-black rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-        {[Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD].map((diff) => (
-          <button
-            key={diff}
-            onClick={() => {
-              playSound('click', isSoundEnabled);
-              setDifficulty(diff);
-            }}
-            className={`px-4 sm:px-8 py-2 sm:py-3 rounded-xl font-black text-sm sm:text-xl uppercase tracking-tight transition-all ${
-              difficulty === diff 
-                ? 'bg-[#118AB2] text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] translate-x-[-2px] translate-y-[-2px]' 
-                : 'text-[#073B4C] hover:bg-slate-100'
-            }`}
-          >
-            {diff}
-          </button>
-        ))}
-      </div>
-
-      {/* Leaderboard Section */}
-      {leaderboard.length > 0 && (
-        <div className="w-full max-w-2xl bg-white border-4 border-black rounded-[40px] p-8 shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
-          <h2 className="text-2xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3 italic">
-            <Trophy className="text-[#FFD166]" size={32} strokeWidth={3} />
-            Papan Peringkat
-          </h2>
-          <div className="space-y-3">
-            {leaderboard.map((entry, i) => (
-              <div key={i} className="flex items-center justify-between p-4 bg-slate-50 border-2 border-black rounded-2xl">
-                <div className="flex items-center gap-4">
-                  <span className={`w-8 h-8 flex items-center justify-center rounded-full border-2 border-black font-black text-sm ${
-                    i === 0 ? 'bg-[#FFD166]' : i === 1 ? 'bg-slate-200' : i === 2 ? 'bg-orange-300' : 'bg-white'
-                  }`}>
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="font-black text-[#073B4C] uppercase tracking-tight leading-none">{entry.name}</p>
-                    <span className="text-[10px] font-bold opacity-50 uppercase">{entry.operation} • {entry.difficulty}</span>
-                  </div>
-                </div>
-                <span className="text-2xl font-black text-[#118AB2]">{entry.score}</span>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 w-full max-w-5xl px-4">
+            {[Operation.ADD, Operation.SUBTRACT, Operation.MULTIPLY].map((op) => (
+              <motion.button
+                key={op}
+                whileHover={{ scale: 1.05, rotate: -1 }}
+                whileTap={{ scale: 0.95 }}
+                disabled={!userName.trim()}
+                onClick={() => {
+                  playSound('click', isSoundEnabled);
+                  startGame(difficulty, op);
+                }}
+                className={`flex flex-row sm:flex-col items-center gap-6 p-6 sm:p-10 bg-white rounded-[30px] sm:rounded-[40px] border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] hover:shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] group hover:bg-[#06D6A0] transition-all ${!userName.trim() ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+              >
+                <motion.div 
+                  animate={{ 
+                    scale: [1, 1.1, 1],
+                    rotate: [0, 5, -5, 0]
+                  }}
+                  transition={{ 
+                    duration: 4, 
+                    repeat: Infinity, 
+                    ease: "easeInOut",
+                    delay: op === Operation.SUBTRACT ? 1 : op === Operation.MULTIPLY ? 2 : 0
+                  }}
+                  className={`p-4 sm:p-6 rounded-2xl border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${
+                    op === Operation.ADD ? 'bg-[#EF476F] text-white' : 
+                    op === Operation.SUBTRACT ? 'bg-[#118AB2] text-white' : 
+                    'bg-[#FFD166] text-[#073B4C]'
+                  }`}
+                >
+                  {op === Operation.ADD && <Plus size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
+                  {op === Operation.SUBTRACT && <Minus size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
+                  {op === Operation.MULTIPLY && <X size={32} className="sm:w-14 sm:h-14" strokeWidth={3} />}
+                </motion.div>
+                <span className="text-2xl sm:text-3xl font-black text-[#073B4C] uppercase tracking-tighter">{op}</span>
+              </motion.button>
             ))}
           </div>
-        </div>
-      )}
+
+          <div className="flex flex-wrap justify-center gap-2 sm:gap-4 p-2 sm:p-3 bg-white border-4 border-black rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+            {[Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD].map((diff) => (
+              <button
+                key={diff}
+                onClick={() => {
+                  playSound('click', isSoundEnabled);
+                  setDifficulty(diff);
+                }}
+                className={`px-4 sm:px-8 py-2 sm:py-3 rounded-xl font-black text-sm sm:text-xl uppercase tracking-tight transition-all ${
+                  difficulty === diff 
+                    ? 'bg-[#118AB2] text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] translate-x-[-2px] translate-y-[-2px]' 
+                    : 'text-[#073B4C] hover:bg-slate-100'
+                }`}
+              >
+                {diff}
+              </button>
+            ))}
+          </div>
+
+          {/* Leaderboard Section */}
+          {leaderboard.length > 0 && (
+            <div className="w-full max-w-2xl bg-white border-4 border-black rounded-[40px] p-8 shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]">
+              <h2 className="text-2xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3 italic">
+                <Trophy className="text-[#FFD166]" size={32} strokeWidth={3} />
+                Papan Peringkat
+              </h2>
+              <div className="space-y-3">
+                {leaderboard.map((entry, i) => (
+                  <div key={i} className="flex items-center justify-between p-4 bg-slate-50 border-2 border-black rounded-2xl">
+                    <div className="flex items-center gap-4">
+                      <span className={`w-8 h-8 flex items-center justify-center rounded-full border-2 border-black font-black text-sm ${
+                        i === 0 ? 'bg-[#FFD166]' : i === 1 ? 'bg-slate-200' : i === 2 ? 'bg-orange-300' : 'bg-white'
+                      }`}>
+                        {i + 1}
+                      </span>
+                      <div>
+                        <p className="font-black text-[#073B4C] uppercase tracking-tight leading-none">{entry.name}</p>
+                        <span className="text-[10px] font-bold opacity-50 uppercase">{entry.operation} • {entry.difficulty}</span>
+                      </div>
+                    </div>
+                    <span className="text-2xl font-black text-[#118AB2]">{entry.score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : renderLearning3D()}
     </div>
   );
 
+  const renderLearning3D = () => {
+    const shapes = [
+      { id: 'kubus', name: 'Kubus', icon: <Dice5 size={32} /> },
+      { id: 'balok', name: 'Balok', icon: <Box size={32} /> },
+      { id: 'tabung', name: 'Tabung', icon: <Cylinder size={32} /> },
+      { id: 'bola', name: 'Bola', icon: <CircleIcon size={32} /> },
+      { id: 'kerucut', name: 'Kerucut', icon: <Pyramid size={32} /> }
+    ];
+
+    const currentShapeData = {
+      kubus: { faces: 6, edges: 12, vertices: 8, desc: 'Memiliki 6 sisi berbentuk persegi yang sama besar.' },
+      balok: { faces: 6, edges: 12, vertices: 8, desc: 'Memiliki 6 sisi, di mana sisi yang berhadapan sama besar.' },
+      tabung: { faces: 3, edges: 2, vertices: 0, desc: 'Memiliki alas dan tutup berbentuk lingkaran yang sejajar.' },
+      bola: { faces: 1, edges: 0, vertices: 0, desc: 'Bangun ruang yang dibatasi oleh satu bidang lengkung.' },
+      kerucut: { faces: 2, edges: 1, vertices: 1, desc: 'Memiliki alas lingkaran dan titik puncak.' }
+    }[selectedShape];
+
+    return (
+      <div className="w-full max-w-6xl mx-auto flex flex-col lg:flex-row gap-8 mt-4">
+        {/* Sidebar */}
+        <div className="w-full lg:w-72 flex flex-col gap-4">
+          <h2 className="text-3xl font-black uppercase tracking-tighter text-[#073B4C] mb-2 italic">Bangun Ruang</h2>
+          {shapes.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => {
+                playSound('click', isSoundEnabled);
+                setSelectedShape(s.id as any);
+              }}
+              className={`flex items-center gap-4 p-4 rounded-2xl border-4 border-black transition-all ${
+                selectedShape === s.id 
+                  ? 'bg-[#118AB2] text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] translate-x-[-2px] translate-y-[-2px]' 
+                  : 'bg-white text-[#073B4C] hover:bg-slate-50'
+              }`}
+            >
+              <div className={selectedShape === s.id ? 'text-white' : 'text-[#118AB2]'}>
+                {s.icon}
+              </div>
+              <span className="text-xl font-black uppercase tracking-tight">{s.name}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* 3D Viewport */}
+        <div className="flex-1 min-h-[500px] lg:min-h-0 bg-white border-4 border-black rounded-[40px] shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] overflow-hidden relative flex flex-col">
+          <div className="h-[400px] bg-slate-50 relative">
+            <Canvas shadows camera={{ position: [5, 5, 5], fov: 45 }}>
+              <ambientLight intensity={0.5} />
+              <pointLight position={[10, 10, 10]} castShadow />
+              <spotLight position={[-10, 10, 10]} angle={0.15} penumbra={1} castShadow />
+              <Stage environment="city" intensity={0.5}>
+                <Shape3D type={selectedShape} />
+              </Stage>
+              <OrbitControls makeDefault autoRotate autoRotateSpeed={2} />
+            </Canvas>
+            <div className="absolute top-6 right-6 flex flex-col items-end gap-2">
+               <span className="tag-badge bg-[#FFD166] text-[#073B4C]">Mode 3D Interaktif</span>
+               <p className="text-[10px] font-black uppercase opacity-40">Geser untuk memutar</p>
+            </div>
+          </div>
+          
+          <div className="p-8 border-t-4 border-black">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
+              <h3 className="text-5xl font-black text-[#073B4C] uppercase tracking-tighter italic">
+                {shapes.find(s => s.id === selectedShape)?.name}
+              </h3>
+              <div className="flex gap-4">
+                <div className="flex flex-col items-center px-4 py-2 bg-slate-100 rounded-xl border-2 border-black">
+                   <span className="text-[10px] font-black uppercase opacity-60">Sisi</span>
+                   <span className="text-2xl font-black text-[#EF476F]">{currentShapeData.faces}</span>
+                </div>
+                <div className="flex flex-col items-center px-4 py-2 bg-slate-100 rounded-xl border-2 border-black">
+                   <span className="text-[10px] font-black uppercase opacity-60">Rusuk</span>
+                   <span className="text-2xl font-black text-[#118AB2]">{currentShapeData.edges}</span>
+                </div>
+                <div className="flex flex-col items-center px-4 py-2 bg-slate-100 rounded-xl border-2 border-black">
+                   <span className="text-[10px] font-black uppercase opacity-60">Titik</span>
+                   <span className="text-2xl font-black text-[#06D6A0]">{currentShapeData.vertices}</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-2xl text-[#073B4C] font-bold opacity-80 leading-relaxed max-w-2xl">
+              {currentShapeData.desc}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
   const renderGame = () => {
     if (!currentQuestion) return null;
 
@@ -464,7 +682,7 @@ export default function App() {
         >
           <div className="tag-badge text-[10px] md:text-xs">Pertanyaan {questionCount} dari 10</div>
           
-          <div className="flex items-center gap-3 sm:gap-6 md:gap-14 text-4xl sm:text-7xl md:text-[140px] font-black tracking-tighter select-none mt-2 md:mt-4 whitespace-nowrap">
+          <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-6 md:gap-10 text-4xl sm:text-6xl md:text-8xl lg:text-[120px] font-black tracking-tighter select-none mt-2 md:mt-4">
             <motion.span 
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -481,7 +699,7 @@ export default function App() {
               {currentQuestion.num2}
             </motion.span>
             <span className="text-slate-200">=</span>
-            <div className={`flex items-center justify-center w-16 h-16 sm:w-28 sm:h-28 md:w-36 md:h-36 rounded-2xl md:rounded-3xl border-2 md:border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] md:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] ${
+            <div className={`flex items-center justify-center min-w-[64px] h-16 sm:min-w-[112px] sm:h-28 md:min-w-[144px] md:h-36 px-4 rounded-2xl md:rounded-3xl border-2 md:border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] md:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] ${
               feedback === 'correct' ? 'bg-[#06D6A0] text-white' :
               feedback === 'wrong' ? 'bg-[#EF476F] text-white animate-pulse' :
               'bg-slate-50 text-slate-200'
