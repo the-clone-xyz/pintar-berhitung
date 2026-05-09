@@ -25,7 +25,7 @@ import {
   Cylinder
 } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Stage, MeshWobbleMaterial, Float, Text } from '@react-three/drei';
+import { OrbitControls, Stage, MeshWobbleMaterial, Float } from '@react-three/drei';
 import confetti from 'canvas-confetti';
 import { 
   collection, 
@@ -840,7 +840,7 @@ export default function App() {
       
       <main className="relative z-10">
         <AnimatePresence mode="wait">
-          {gameState === GameState.LOBBY && renderLobby()}
+          {(gameState === GameState.LOBBY || gameState === GameState.LEARNING_3D) && renderLobby()}
           {gameState === GameState.PLAYING && renderGame()}
           {gameState === GameState.WIN && renderOutcome(true)}
           {gameState === GameState.GAME_OVER && renderOutcome(false)}

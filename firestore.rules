@@ -34,8 +34,8 @@ service cloud.firestore {
       // Allow list and get for anyone
       allow read: if true;
       
-      // Allow creation if signed in (anonymous allowed) and data is valid
-      allow create: if isSignedIn() && isValidLeaderboardEntry(incoming());
+      // Allow creation if data is valid
+      allow create: if isValidLeaderboardEntry(incoming());
       
       // No updates or deletions allowed - leaderboard is immutable
       allow update, delete: if false;
