@@ -27,65 +27,7 @@ import {
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stage, MeshWobbleMaterial, Float } from '@react-three/drei';
 import confetti from 'canvas-confetti';
-import { 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  limit,
-  serverTimestamp 
-} from 'firebase/firestore';
-import { db, auth } from './firebase';
-
 // --- Types ---
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
 
 enum GameState {
   LOBBY = 'lobby',
@@ -292,42 +234,45 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [selectedShape, setSelectedShape] = useState<'kubus' | 'balok' | 'tabung' | 'bola' | 'kerucut'>('kubus');
 
-  // Load leaderboard real-time
-  useEffect(() => {
-    const q = query(
-      collection(db, LEADERBOARD_COLLECTION), 
-      orderBy('score', 'desc'), 
-      limit(10)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const entries: LeaderboardEntry[] = [];
-      snapshot.forEach((doc) => {
-        entries.push(doc.data() as LeaderboardEntry);
-      });
-      setLeaderboard(entries);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, LEADERBOARD_COLLECTION);
-    });
-
-    return () => unsubscribe();
+  const fetchLeaderboard = useCallback(async () => {
+    try {
+      const response = await fetch('/api/leaderboard');
+      if (response.ok) {
+        const data = await response.json();
+        setLeaderboard(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch leaderboard:', error);
+    }
   }, []);
+
+  // Load leaderboard periodically since we lack websockets
+  useEffect(() => {
+    fetchLeaderboard();
+    const interval = setInterval(fetchLeaderboard, 5000);
+    return () => clearInterval(interval);
+  }, [fetchLeaderboard]);
 
   const saveScore = useCallback(async (finalScore: number) => {
     if (!userName.trim() || finalScore === 0) return;
     
     try {
-      await addDoc(collection(db, LEADERBOARD_COLLECTION), {
-        name: userName,
-        score: finalScore,
-        difficulty,
-        operation,
-        timestamp: Date.now() // or serverTimestamp() - but rules expect number and schema says number
+      await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: userName,
+          score: finalScore,
+          difficulty,
+          operation,
+          timestamp: Date.now()
+        })
       });
+      fetchLeaderboard();
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, LEADERBOARD_COLLECTION);
+       console.error('Failed to save score:', error);
     }
-  }, [userName, difficulty, operation]);
+  }, [userName, difficulty, operation, fetchLeaderboard]);
 
   useEffect(() => {
     if (gameState === GameState.PLAYING && isSoundEnabled) {

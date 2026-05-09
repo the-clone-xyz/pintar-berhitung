@@ -16,7 +16,7 @@ Aplikasi edukasi interaktif dan menyenangkan untuk belajar matematika dasar dan 
 *   **Styling:** Tailwind CSS (Menggunakan skema desain *Playful Brutalism*)
 *   **Rendering 3D:** `@react-three/fiber`, `@react-three/drei`, `three.js`
 *   **Animasi:** `framer-motion`, `canvas-confetti` untuk selebrasi kemenangan
-*   **Backend / Database:** Firebase Firestore (Real-time Leaderboard) & Firebase Auth (Anonymous Login)
+*   **Backend / Database:** Express.js dan SQLite (better-sqlite3) via REST API
 *   **Ikon:** `lucide-react`
 
 ## 🛠️ Cara Menjalankan Aplikasi Lokal
@@ -33,12 +33,11 @@ Aplikasi edukasi interaktif dan menyenangkan untuk belajar matematika dasar dan 
    ```
 5. Buka tautan lokal (biasanya `http://localhost:3000`) di browser web Anda.
 
-## 🔒 Catatan Keamanan Firebase
+## 🗄️ Penyimpanan Data Lengkap
 
-Aplikasi ini menggunakan Firebase Firestore untuk fungsionalitas Papan Peringkat. File `firestore.rules` telah dikonfigurasi dengan standar keamanan ketat untuk mencegah spam atau modifikasi skor (*tampering*):
-- *Read-only* terbuka untuk mengambil 10 skor teratas.
-- Operasi pembuatan skor (Create) divalidasi terhadap tipe data (String/Number) dan panjang batas angka.
-- Pembaruan dan Penghapusan data Leaderboard dinonaktifkan (Immutable).
+Aplikasi ini menggunakan SQLite (`better-sqlite3`) yang tidak membutuhkan instalasi server database tersendiri.
+Seluruh data (seperti skor pada Papan Peringkat) akan disimpan di file `data/database.sqlite` di root repositori ketika dijalankan lokal. 
+Anda hanya perlu melakukan `git clone` repositori dan *install* depedensinya, aplikasi sudah lengkap dengan backend dan frontend.
 
 ---
 *Dibuat dan dipelihara menggunakan AI Studio Coding Agent.*
