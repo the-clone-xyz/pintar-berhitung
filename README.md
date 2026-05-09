@@ -1,43 +1,43 @@
-# 🧮 Hitung Cepat! (Pintar Berhitung)
+# Hitung Cepat! (Pintar Berhitung)
 
-Aplikasi edukasi interaktif dan menyenangkan untuk belajar matematika dasar dan pengenalan bangun ruang 3D. Didesain dengan gaya brutalist yang ceria untuk menarik perhatian anak-anak dan pelajar.
+Aplikasi edukasi interaktif untuk pembelajaran matematika dasar dan pengenalan bangun ruang 3D. Didesain dengan gaya antarmuka *brutalist* untuk memberikan pengalaman belajar yang dinamis dan menarik.
 
-## ✨ Fitur Utama
+## Fitur Utama
 
-*   **🎮 Game Berhitung Cepat:** Berlatih operasi matematika dasar (Penjumlahan, Pengurangan, dan Perkalian) dengan 3 tingkat kesulitan: Mudah, Sedang, dan Sulit.
-*   **🧊 Pengenalan Bangun Ruang 3D:** Modul pembelajaran interaktif untuk bereksplorasi dengan bangun ruang 3D (Kubus, Balok, Tabung, Bola, Kerucut). Objek dapat diputar (interaktif) dan dilengkapi dengan informasi detail mengenai jumlah sisi, rusuk, dan titik sudut.
-*   **🏆 Papan Peringkat Global (Leaderboard real-time):** Bersaing dengan pemain lain! Masukkan nama sebelum bermain dan skor akhir akan disimpan ke database secara *real-time* dan ditampilkan kepada semua pemain.
-*   **🔊 Efek Suara & Animasi Ceria:** Umpan balik audiovisual lengkap. Animasi UI dibangun dengan Framer Motion, ditambah dengan *background music* (BGM) dan efek suara untuk jawaban benar/salah.
-*   **⭐ Visualisasi Belajar:** Saat bermain, soal penjumlahan dan pengurangan menampilkan ilustrasi bintang visual untuk membantu pemahaman konsep berhitung dasar dengan lebih nyata.
+*   **Game Berhitung Cepat:** Modul latihan operasi matematika dasar (Penjumlahan, Pengurangan, dan Perkalian) yang dilengkapi dengan 3 tingkat kesulitan: Mudah, Sedang, dan Sulit.
+*   **Pengenalan Bangun Ruang 3D:** Modul pembelajaran interaktif untuk bereksplorasi dengan berbagai bangun ruang tiga dimensi (Kubus, Balok, Tabung, Bola, Kerucut). Antarmuka 3D interaktif yang memungkinkan pengguna untuk memutar objek dan melihat informasi referensi mendetail mengenai jumlah sisi, rusuk, dan titik sudut.
+*   **Papan Peringkat (Leaderboard):** Sistem pencatatan skor kompetitif. Skor akhir pengguna akan disimpan ke basis data secara *real-time* dan ditampilkan pada papan peringkat terbuka.
+*   **Audio & Animasi Taktil:** Umpan balik audiovisual untuk meningkatkan imersi dan motivasi pengguna.
+*   **Visualisasi Komputasi:** Selama modul latihan berjalan, layar menampilkan ilustrasi visual untuk mempermudah perhitungan dasar bagi pengguna.
 
-## 🚀 Teknologi yang Digunakan
+## Spesifikasi Teknologi
 
-*   **Framework Frontend:** React 18, TypeScript, Vite
-*   **Styling:** Tailwind CSS (Menggunakan skema desain *Playful Brutalism*)
+*   **Lingkungan Eksekusi Frontend:** React 18, TypeScript, Vite
+*   **Styling:** Tailwind CSS 
 *   **Rendering 3D:** `@react-three/fiber`, `@react-three/drei`, `three.js`
-*   **Animasi:** `framer-motion`, `canvas-confetti` untuk selebrasi kemenangan
-*   **Backend / Database:** Express.js dan SQLite (better-sqlite3) via REST API
-*   **Ikon:** `lucide-react`
+*   **Animasi & Interaksi:** `framer-motion`, `canvas-confetti`
+*   **Sistem Backend:** Express.js via Node.js
+*   **Database:** SQLite (`better-sqlite3`) terintegrasi langsung dalam proyek.
 
-## 🛠️ Cara Menjalankan Aplikasi Lokal
+## Panduan Instalasi Lokal
 
-1. Pastikan Anda telah menginstal `Node.js` dan `npm`.
-2. Buka terminal pada folder proyek ini.
-3. Install seluruh dependensi:
+Proyek ini telah dikonfigurasi sebagai aplikasi *full-stack* dan memiliki pengaturan basis data yang terpusat, sehingga mempermudah proses kloning (clone) dan eksekusi lokal tanpa perlu konfigurasi infrastruktur eksternal.
+
+1. Pastikan lingkungan kerja Anda telah memiliki `Node.js` dan `npm`.
+2. Lakukan *clone* repositori ke mesin lokal Anda, kemudian navigasi ke direktori root proyek.
+3. Lakukan instalasi semua dependensi:
    ```bash
    npm install
    ```
-4. Jalankan *development server*:
+4. Mulai server pengembangan:
    ```bash
    npm run dev
    ```
-5. Buka tautan lokal (biasanya `http://localhost:3000`) di browser web Anda.
+5. Buka tautan lokal (default: `http://localhost:3000`) pada peramban (browser) web pilihan Anda.
 
-## 🗄️ Penyimpanan Data Lengkap
+## Manajemen Data (SQLite)
 
-Aplikasi ini menggunakan SQLite (`better-sqlite3`) yang tidak membutuhkan instalasi server database tersendiri.
-Seluruh data (seperti skor pada Papan Peringkat) akan disimpan di file `data/database.sqlite` di root repositori ketika dijalankan lokal. 
-Anda hanya perlu melakukan `git clone` repositori dan *install* depedensinya, aplikasi sudah lengkap dengan backend dan frontend.
+Penyimpanan instan dan internal pada aplikasi menggunakan `better-sqlite3`. Backend akan secara otomatis membuat direktori `data` beserta basis datanya `database.sqlite` ketika server mulai dijalankan jika file tersebut belum tersedia. Pendekatan ini mendukung portabilitas kode dan kemudahan pengembangan, mengurangi ketergantungan pada layanan cloud *third-party* saat menjalankan aplikasi secara komprehensif (frontend-to-backend).
 
 ---
-*Dibuat dan dipelihara menggunakan AI Studio Coding Agent.*
+*Dibuat menggunakan konfigurasi modular dan siap dikembangkan lebih lanjut.*
